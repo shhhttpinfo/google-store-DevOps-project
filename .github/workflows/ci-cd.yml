@@ -29,7 +29,7 @@ jobs:
           token: ${{ secrets.GIT_PAT }}
 
       # -------------------------
-      # AWS Auth
+      # AWS Credentials
       # -------------------------
       - name: 🔧 Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,7 +52,7 @@ jobs:
           set -e
           IMAGE_TAG="${GITHUB_SHA}"
 
-          # --- Frontend Services ---
+          # -------- Frontend --------
           for service in $FRONTEND_SERVICES; do
             FOLDER="frontend/$service"
             REPO_NAME="shopping-site-$service"
@@ -63,10 +63,11 @@ jobs:
               continue
             fi
 
-            echo "🚀 Building $service..."
+            echo "🚀 Building $service"
 
             aws ecr describe-repositories --repository-names $REPO_NAME >/dev/null 2>&1 || \
-              aws ecr create-repository --repository-name $REPO_NAME \
+              aws ecr create-repository \
+                --repository-name $REPO_NAME \
                 --image-scanning-configuration scanOnPush=true
 
             docker build -t $IMAGE_URI $FOLDER
@@ -75,15 +76,16 @@ jobs:
             sed -i "s|image:.*|image: $IMAGE_URI|g" "$FOLDER/deployment.yml"
           done
 
-          # --- Backend Service ---
+          # -------- Backend --------
           FOLDER="backend"
           REPO_NAME="shopping-site-backend"
           IMAGE_URI="$ECR_REGISTRY/$REPO_NAME:$IMAGE_TAG"
 
-          echo "🚀 Building backend..."
+          echo "🚀 Building backend"
 
           aws ecr describe-repositories --repository-names $REPO_NAME >/dev/null 2>&1 || \
-            aws ecr create-repository --repository-name $REPO_NAME \
+            aws ecr create-repository \
+              --repository-name $REPO_NAME \
               --image-scanning-configuration scanOnPush=true
 
           docker build -t $IMAGE_URI $FOLDER
@@ -92,7 +94,7 @@ jobs:
           sed -i "s|image:.*|image: $IMAGE_URI|g" "$FOLDER/backend-deployment.yml"
 
       # -------------------------
-      # Commit Updated YAMLs
+      # Commit YAML changes
       # -------------------------
       - name: 🔄 Commit updated YAML files
         run: |
@@ -100,17 +102,17 @@ jobs:
           git config --global user.email "actions@github.com"
 
           git add frontend/**/deployment.yml backend/backend-deployment.yml
-          git commit -m "🔄 Update image tags after build [skip ci]" || echo "⚠️ No YAML changes"
-          git push origin main || echo "⚠️ No changes to push"
+          git commit -m "🔄 Update image tags after build [skip ci]" || echo "No changes"
+          git push origin main || echo "Nothing to push"
 
       # -------------------------
-      # Install jq (for scans)
+      # Install jq
       # -------------------------
       - name: 📦 Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
       # -------------------------
-      # Scan FRONTEND Images
+      # Scan FRONTEND images
       # -------------------------
       - name: 🔍 Scan Frontend Images in ECR
         run: |
@@ -121,6 +123,12 @@ jobs:
 
           for service in $FRONTEND_SERVICES; do
             REPO_NAME="shopping-site-$service"
+
+            echo "➡️ Starting scan for $REPO_NAME"
+
+            aws ecr start-image-scan \
+              --repository-name $REPO_NAME \
+              --image-id imageTag=$IMAGE_TAG || true
 
             aws ecr wait image-scan-complete \
               --repository-name $REPO_NAME \
@@ -146,12 +154,16 @@ jobs:
           echo "✅ All frontend images passed scan"
 
       # -------------------------
-      # Scan BACKEND Image
+      # Scan BACKEND image
       # -------------------------
       - name: 🔍 Scan Backend Image in ECR
         run: |
           set -e
           IMAGE_TAG="${GITHUB_SHA}"
+
+          aws ecr start-image-scan \
+            --repository-name shopping-site-backend \
+            --image-id imageTag=$IMAGE_TAG || true
 
           aws ecr wait image-scan-complete \
             --repository-name shopping-site-backend \
@@ -176,8 +188,8 @@ jobs:
           echo "✅ Backend image passed scan"
 
       # -------------------------
-      # Skip CI loop
+      # Prevent CI loop
       # -------------------------
       - name: 🧠 Skip loop if commit was automated
         if: contains(github.event.head_commit.message, '[skip ci]')
-        run: echo "Skipping re-triggered build due to [skip ci] commit"
+        run: echo "Skipping re-triggered build"
