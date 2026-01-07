@@ -19,3 +19,6 @@ spec:
           image: 195580718602.dkr.ecr.us-east-1.amazonaws.com/shopping-site-backend:eb4a43c07a5118733b57e4126c495a960867a83b
           ports:
             - containerPort: 5000
+      imagePullSecrets:
+        - name: ecr-secret   # <-- reference the secret you create
+
